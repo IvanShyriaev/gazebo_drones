@@ -10,24 +10,42 @@ class TyphoonCamera(Node):
         
         self.ns = f'/{namespace}' if namespace else ''
         
+        drone_id = 0
+        if namespace:
+            import re
+            match = re.search(r'\d+', namespace)
+            if match:
+                drone_id = int(match.group())
+        
+        self.video_port = 5600 + drone_id
+        
         self.pub = self.create_publisher(Image, f'{self.ns}/camera/image_raw', 10)
         self.bridge = CvBridge()
 
         pipeline = (
-            "udpsrc port=5600 ! "
+            f"udpsrc port={self.video_port} ! "
             "application/x-rtp,media=video,clock-rate=90000,encoding-name=H264 ! "
             "rtph264depay ! avdec_h264 ! videoconvert ! "
             "video/x-raw,format=BGR ! appsink"
         )
+        
+        self.get_logger().info(f'Attempting to connect to video stream on port {self.video_port}...')
+        
         self.cap = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
         if not self.cap.isOpened():
-            raise RuntimeError("Cannot open video stream")
+            self.get_logger().warn(f"Cannot open video stream on port {self.video_port}. Make sure the drone is streaming video.")
+            self.cap = None
+        else:
+            self.get_logger().info(f'Video stream connected on port {self.video_port}')
 
         self.timer = self.create_timer(0.03, self.timer_cb)  # ~30 FPS
         
         self.get_logger().info(f'Typhoon Camera node started with namespace: {self.ns if self.ns else "none"}')
 
     def timer_cb(self):
+        if self.cap is None or not self.cap.isOpened():
+            return
+            
         ret, frame = self.cap.read()
         if not ret:
             return
