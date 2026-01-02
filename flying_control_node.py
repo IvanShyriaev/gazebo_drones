@@ -137,12 +137,12 @@ class FlyingTargetController(Node):
 
         self.arm_client = self.create_client(
             CommandBool,
-            f'{self.ns}/mavros/cmd/arming'
+            f'{self.ns}/cmd/arming'
         )
 
         self.mode_client = self.create_client(
             SetMode,
-            f'{self.ns}/mavros/set_mode'
+            f'{self.ns}/set_mode'
         )
 
         # ОБОВʼЯЗКОВО

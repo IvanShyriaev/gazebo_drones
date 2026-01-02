@@ -28,8 +28,9 @@ class PVODiscreteFlight(Node):
         self.state_sub = self.create_subscription(State, f'{self.ns}/state', self.state_callback, qos_profile)
         self.pose_sub = self.create_subscription(PoseStamped, f'{self.ns}/local_position/pose', self.pose_callback, qos_profile)
         
-        self.arm_client = self.create_client(CommandBool, f'{self.ns}/mavros/cmd/arming')
-        self.mode_client = self.create_client(SetMode, f'{self.ns}/mavros/set_mode')
+        # Services - check actual service names with ros2 service list
+        self.arm_client = self.create_client(CommandBool, f'{self.ns}/cmd/arming')
+        self.mode_client = self.create_client(SetMode, f'{self.ns}/set_mode')
 
         # Точки (X, Y, Z)
         self.waypoints = [
