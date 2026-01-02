@@ -21,12 +21,12 @@ class PVODiscreteFlight(Node):
         )
 
         # Паблішери
-        self.pub = self.create_publisher(PoseStamped, f'{self.ns}/mavros/setpoint_position/local', 10)
-        self.mount_pub = self.create_publisher(MountControl, f'{self.ns}/mavros/mount_control/command', 10)
+        self.pub = self.create_publisher(PoseStamped, f'{self.ns}/setpoint_position/local', 10)
+        self.mount_pub = self.create_publisher(MountControl, f'{self.ns}/mount_control/command', 10)
         
-        # Підписники
-        self.state_sub = self.create_subscription(State, f'{self.ns}/mavros/state', self.state_callback, qos_profile)
-        self.pose_sub = self.create_subscription(PoseStamped, f'{self.ns}/mavros/local_position/pose', self.pose_callback, qos_profile)
+        # Підписники - FIXED: removed '/mavros/' from topic paths
+        self.state_sub = self.create_subscription(State, f'{self.ns}/state', self.state_callback, qos_profile)
+        self.pose_sub = self.create_subscription(PoseStamped, f'{self.ns}/local_position/pose', self.pose_callback, qos_profile)
         
         self.arm_client = self.create_client(CommandBool, f'{self.ns}/mavros/cmd/arming')
         self.mode_client = self.create_client(SetMode, f'{self.ns}/mavros/set_mode')

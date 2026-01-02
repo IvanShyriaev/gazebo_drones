@@ -124,7 +124,7 @@ class FlyingTargetController(Node):
     
         self.setpoint_pub = self.create_publisher(
             PoseStamped,
-            f'{self.ns}/mavros/setpoint_position/local',
+            f'{self.ns}/setpoint_position/local',
             10
         )
 
