@@ -1,6 +1,7 @@
 import rclpy
-from rclpy.node import Node
+import sys
 import math
+from rclpy.node import Node
 
 from geometry_msgs.msg import PoseStamped, Quaternion
 from mavros_msgs.msg import State, MountControl
@@ -20,19 +21,19 @@ class PVODiscreteFlight(Node):
             depth=10
         )
 
-        # Паблішери
+        # Publishers
         self.pub = self.create_publisher(PoseStamped, f'{self.ns}/setpoint_position/local', 10)
         self.mount_pub = self.create_publisher(MountControl, f'{self.ns}/mount_control/command', 10)
         
-        # Підписники - FIXED: removed '/mavros/' from topic paths
+        # Subscribers
         self.state_sub = self.create_subscription(State, f'{self.ns}/state', self.state_callback, qos_profile)
         self.pose_sub = self.create_subscription(PoseStamped, f'{self.ns}/local_position/pose', self.pose_callback, qos_profile)
         
-        # Services - check actual service names with ros2 service list
+        # Services
         self.arm_client = self.create_client(CommandBool, f'{self.ns}/cmd/arming')
         self.mode_client = self.create_client(SetMode, f'{self.ns}/set_mode')
 
-        # Точки (X, Y, Z)
+        # Waypoints (X, Y, Z)
         self.waypoints = [
             (7.47, 30.14, 30.0),
             (-203.06, -54.12, 40.0),
@@ -58,8 +59,8 @@ class PVODiscreteFlight(Node):
         self.timer = self.create_timer(0.1, self.control_loop)
         
         self.get_logger().info(f'Namespace: {self.ns if self.ns else "none"}')
-        self.get_logger().info(f'Subscribing to state: {self.ns}/mavros/state')
-        self.get_logger().info(f'Subscribing to pose: {self.ns}/mavros/local_position/pose')
+        self.get_logger().info(f'Subscribing to state: {self.ns}/state')
+        self.get_logger().info(f'Subscribing to pose: {self.ns}/local_position/pose')
 
     def state_callback(self, msg):
         self.current_state = msg
@@ -73,7 +74,7 @@ class PVODiscreteFlight(Node):
             self.get_logger().info(f'Home position fixed: ({self.home_pose.x:.2f}, {self.home_pose.y:.2f}, {self.home_pose.z:.2f})')
 
     def set_camera_down(self):
-        """Направляє камеру вертикально вниз"""
+        """Point camera straight down"""
         mount_msg = MountControl()
         mount_msg.header.stamp = self.get_clock().now().to_msg()
         mount_msg.mode = 2
@@ -177,10 +178,9 @@ class PVODiscreteFlight(Node):
         self.arm_client.call_async(req)
         self.get_logger().info('Arming requested')
 
+
 def main():
     rclpy.init()
-    
-    import sys
     namespace = sys.argv[1] if len(sys.argv) > 1 else ''
     
     node = PVODiscreteFlight(namespace=namespace)
@@ -191,6 +191,7 @@ def main():
     finally:
         node.destroy_node()
         rclpy.shutdown()
+
 
 if __name__ == '__main__':
     main()
