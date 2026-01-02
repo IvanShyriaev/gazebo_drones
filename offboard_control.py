@@ -48,15 +48,17 @@ class PVODiscreteFlight(Node):
         
         self.target_x = 0.0
         self.target_y = 0.0
-        self.target_z = 2.0  # Start at 2m altitude
+        self.target_z = 2.0
         self.target_yaw = 0.0
         
         self.setpoint_counter = 0
-        self.offboard_setpoint_counter = 0
+        self.debug_counter = 0
 
         self.timer = self.create_timer(0.1, self.control_loop)
         
         self.get_logger().info(f'Namespace: {self.ns if self.ns else "none"}')
+        self.get_logger().info(f'Subscribing to state: {self.ns}/mavros/state')
+        self.get_logger().info(f'Subscribing to pose: {self.ns}/mavros/local_position/pose')
 
     def state_callback(self, msg):
         self.current_state = msg
@@ -67,14 +69,14 @@ class PVODiscreteFlight(Node):
             self.home_pose = msg.pose.position
             self.target_x = self.home_pose.x
             self.target_y = self.home_pose.y
-            self.get_logger().info('Home position fixed.')
+            self.get_logger().info(f'Home position fixed: ({self.home_pose.x:.2f}, {self.home_pose.y:.2f}, {self.home_pose.z:.2f})')
 
     def set_camera_down(self):
         """Направляє камеру вертикально вниз"""
         mount_msg = MountControl()
         mount_msg.header.stamp = self.get_clock().now().to_msg()
-        mount_msg.mode = 2  # MAV_MOUNT_MODE_MAVLINK_TARGETING
-        mount_msg.pitch = -90.0  # Дивитися вниз
+        mount_msg.mode = 2
+        mount_msg.pitch = -90.0
         mount_msg.roll = 0.0
         mount_msg.yaw = 0.0
         self.mount_pub.publish(mount_msg)
@@ -88,7 +90,6 @@ class PVODiscreteFlight(Node):
         pose_msg.pose.position.y = self.target_y
         pose_msg.pose.position.z = self.target_z
         
-        # Перетворення Yaw в кватерніон
         sy = math.sin(self.target_yaw * 0.5)
         cy = math.cos(self.target_yaw * 0.5)
         pose_msg.pose.orientation.z = sy
@@ -98,27 +99,30 @@ class PVODiscreteFlight(Node):
         self.setpoint_counter += 1
 
     def control_loop(self):
+        # Debug output every 3 seconds
+        self.debug_counter += 1
+        if self.debug_counter >= 30:
+            self.get_logger().info(f'home_pose: {self.home_pose}, current_local_pose: {self.current_local_pose is not None}')
+            self.get_logger().info(f'State - guided: {self.current_state.guided}, armed: {self.current_state.armed}')
+            self.get_logger().info(f'State machine: {self.state_machine}')
+            self.debug_counter = 0
+        
         if self.home_pose is None or self.current_local_pose is None:
             return
 
-        self.set_camera_down()  # Постійно тримаємо камеру вниз
-        
+        self.set_camera_down()
         self.publish_setpoint()
 
         if self.state_machine == "WAITING":
-            # Публікуємо 10 setpoint-ів перед OFFBOARD
             if self.setpoint_counter < 100:
-                self.get_logger().info(f'Publishing setpoints: {self.setpoint_counter}/100')
                 return
             
-            # Тепер можемо перейти в OFFBOARD
             if not self.current_state.guided:
                 self.set_offboard_mode()
             
             if self.current_state.guided and not self.current_state.armed:
                 self.arm()
             
-            # Коли озброєний і в OFFBOARD
             if self.current_state.guided and self.current_state.armed:
                 self.state_machine = "NAVIGATING"
                 self.get_logger().info("Starting waypoint mission")
@@ -127,15 +131,13 @@ class PVODiscreteFlight(Node):
             target = self.waypoints[self.current_wp_idx]
             self.target_x, self.target_y, self.target_z = target
             
-            # Обчислюємо відстань до поточної цілі
             dx = target[0] - self.current_local_pose.pose.position.x
             dy = target[1] - self.current_local_pose.pose.position.y
             dist = math.sqrt(dx**2 + dy**2)
 
-            # Розрахунок Yaw, щоб дрон дивився куди летить
             self.target_yaw = math.atan2(dy, dx)
 
-            if dist < 3.0:  # Радіус досягнення точки (3 метри)
+            if dist < 3.0:
                 self.get_logger().info(f"Reached point {self.current_wp_idx + 1}")
                 self.current_wp_idx += 1
                 if self.current_wp_idx >= len(self.waypoints):
