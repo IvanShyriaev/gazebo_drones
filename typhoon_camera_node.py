@@ -11,10 +11,10 @@ class TyphoonCamera(Node):
         self.bridge = CvBridge()
 
         pipeline = (
-            "udpsrc port=5600 ! "
+            "udpsrc port=5600 reuse=true ! "
             "application/x-rtp,media=video,clock-rate=90000,encoding-name=H264 ! "
             "rtph264depay ! avdec_h264 ! videoconvert ! "
-            "video/x-raw,format=BGR ! appsink"
+            "video/x-raw,format=BGR ! appsink sync=false"
         )
         self.cap = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
         if not self.cap.isOpened():

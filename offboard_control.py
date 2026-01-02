@@ -1,3 +1,93 @@
+# import rclpy
+# from rclpy.node import Node
+# from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
+# from px4_msgs.msg import OffboardControlMode, TrajectorySetpoint, VehicleCommand, VehicleStatus
+
+# class OffboardControl(Node):
+#     def __init__(self):
+#         super().__init__('multi_offboard_control')
+
+#         # Список дронів та їх цільових висот (Z у PX4 від'ємна, тому -3.0 це вгору)
+#         self.drones = {
+#             'px4_1': {'height': -3.0, 'id': 1},
+#             'px4_2': {'height': -2.0, 'id': 2},
+#         }
+
+#         self.publishers_offboard_mode = {}
+#         self.publishers_trajectory = {}
+#         self.publishers_vehicle_command = {}
+
+#         # Створюємо паблішери для кожного дрона
+#         for ns in self.drones.keys():
+#             qos_profile = QoSProfile(
+#                 reliability=ReliabilityPolicy.BEST_EFFORT,
+#                 durability=DurabilityPolicy.TRANSIENT_LOCAL,
+#                 history=HistoryPolicy.KEEP_LAST,
+#                 depth=1
+#             )
+
+#             self.publishers_offboard_mode[ns] = self.create_publisher(OffboardControlMode, f'/{ns}/fmu/in/offboard_control_mode', qos_profile)
+#             self.publishers_trajectory[ns] = self.create_publisher(TrajectorySetpoint, f'/{ns}/fmu/in/trajectory_setpoint', qos_profile)
+#             self.publishers_vehicle_command[ns] = self.create_publisher(VehicleCommand, f'/{ns}/fmu/in/vehicle_command', qos_profile)
+
+#         self.offboard_setpoint_counter = 0
+#         self.timer = self.create_timer(0.1, self.timer_callback)
+
+#     def publish_vehicle_command(self, ns, command, **params):
+#         msg = VehicleCommand()
+#         msg.command = command
+#         msg.param1 = params.get("param1", 0.0)
+#         msg.param2 = params.get("param2", 0.0)
+#         msg.target_system = self.drones[ns]['id']
+#         msg.target_component = 1
+#         msg.source_system = 1
+#         msg.source_component = 1
+#         msg.from_external = True
+#         msg.timestamp = int(self.get_clock().now().nanoseconds / 1000)
+#         self.publishers_vehicle_command[ns].publish(msg)
+
+#     def arm(self, ns):
+#         self.publish_vehicle_command(ns, VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM, param1=1.0)
+#         self.get_logger().info(f"{ns} armed")
+
+#     def set_offboard_mode(self, ns):
+#         self.publish_vehicle_command(ns, VehicleCommand.VEHICLE_CMD_DO_SET_MODE, param1=1.0, param2=6.0)
+#         self.get_logger().info(f"{ns} set to offboard mode")
+
+#     def timer_callback(self):
+#         for ns, data in self.drones.items():
+#             # 1. Публікуємо Heartbeat (OffboardControlMode), щоб PX4 не вийшов з Offboard
+#             offboard_msg = OffboardControlMode()
+#             offboard_msg.position = True
+#             offboard_msg.velocity = False
+#             offboard_msg.acceleration = False
+#             offboard_msg.timestamp = int(self.get_clock().now().nanoseconds / 1000)
+#             self.publishers_offboard_mode[ns].publish(offboard_msg)
+
+#             # 2. Відправляємо на цільову висоту
+#             trajectory_msg = TrajectorySetpoint()
+#             trajectory_msg.position = [0.0, 0.0, data['height']]
+#             trajectory_msg.yaw = 0.0
+#             trajectory_msg.timestamp = int(self.get_clock().now().nanoseconds / 1000)
+#             self.publishers_trajectory[ns].publish(trajectory_msg)
+
+#             # 3. Армінг та перехід в Offboard після короткої паузи (1 секунда)
+#             if self.offboard_setpoint_counter == 10:
+#                 self.arm(ns)
+#                 self.set_offboard_mode(ns)
+
+#         self.offboard_setpoint_counter += 1
+
+# def main(args=None):
+#     rclpy.init(args=args)
+#     offboard_control = OffboardControl()
+#     rclpy.spin(offboard_control)
+#     offboard_control.destroy_node()
+#     rclpy.shutdown()
+
+# if __name__ == '__main__':
+#     main()
+
 import rclpy
 from rclpy.node import Node
 import math

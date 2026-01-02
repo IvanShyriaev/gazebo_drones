@@ -54,7 +54,10 @@ class CNNDetectorNode(Node):
         self.img_counter = 0
 
         self.output_dir = './yolo_outputs'
+        self.raw_dir = './raw_images'
         os.makedirs(self.output_dir, exist_ok=True)
+        os.makedirs(self.raw_dir, exist_ok=True)
+
 
     def image_cb(self, msg: Image):
 
@@ -65,29 +68,31 @@ class CNNDetectorNode(Node):
 
         try:
             frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+            raw_img_filename = os.path.join(self.raw_dir, f'raw_img_{self.img_counter:05d}.jpg')
+            cv2.imwrite(raw_img_filename, frame)
 
             results = self.model(frame, size = 640)
 
             detections = results.xyxy[0]  
 
-            if len(detections) > 0:
-                # time.sleep(5000)
-                msg = PoseStamped()
-                msg.header.stamp = self.get_clock().now().to_msg()
-                msg.header.frame_id = 'map'
+            # if len(detections) > 0:
+            #     # time.sleep(5000)
+            #     msg = PoseStamped()
+            #     msg.header.stamp = self.get_clock().now().to_msg()
+            #     msg.header.frame_id = 'map'
 
-                #Тут просто заадємо координати const (поки що потім буде йоло з обчисленням координат)
-                msg.pose.position.x = 10.0
-                msg.pose.position.y = 10.0
-                msg.pose.position.z = 2.0
+            #     #Тут просто заадємо координати const (поки що потім буде йоло з обчисленням координат)
+            #     msg.pose.position.x = 10.0
+            #     msg.pose.position.y = 10.0
+            #     msg.pose.position.z = 2.0
 
-                msg.pose.orientation.w = 1.0
+            #     msg.pose.orientation.w = 1.0
 
-                self.target_pub.publish(msg)
+            #     self.target_pub.publish(msg)
 
-                self.get_logger().info(
-                    'Target detected! I gave coords to drone kamikadze'
-                )
+            #     self.get_logger().info(
+            #         'Target detected! I gave coords to drone kamikadze'
+            #     )
 
             now = time.time()
             fps = 1.0 / (now - self.last_time)
