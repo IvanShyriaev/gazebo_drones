@@ -8,8 +8,10 @@ import os
 from datetime import datetime
 
 class VideoRecorderNode(Node):
-    def __init__(self):
+    def __init__(self, namespace=''):
         super().__init__('video_recorder_node')
+
+        self.ns = f'/{namespace}' if namespace else ''
 
         # Налаштування QoS (як у твоїй ноді з YOLO)
         qos = QoSProfile(
@@ -20,7 +22,7 @@ class VideoRecorderNode(Node):
 
         self.sub = self.create_subscription(
             Image,
-            'camera/image_raw',
+            f'{self.ns}/camera/image_raw',
             self.image_cb,
             qos
         )
@@ -39,7 +41,8 @@ class VideoRecorderNode(Node):
         self.video_writer = None
         self.fps = 1.0  # Можна змінити залежно від камери
         
-        self.get_logger().info(f'Recorder started. Waiting for images on "camera/image_raw"...')
+        self.get_logger().info(f'Recorder started. namespace: {self.ns if self.ns else "none"}')
+        self.get_logger().info(f'Waiting for images on "{self.ns}/camera/image_raw"...')
 
     def image_cb(self, msg: Image):
         try:
@@ -73,7 +76,11 @@ class VideoRecorderNode(Node):
 
 def main():
     rclpy.init()
-    node = VideoRecorderNode()
+    
+    import sys
+    namespace = sys.argv[1] if len(sys.argv) > 1 else ''
+    
+    node = VideoRecorderNode(namespace=namespace)
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

@@ -12,8 +12,10 @@ import cv2
 import os
 
 class CNNDetectorNode(Node):
-    def __init__(self):
+    def __init__(self, namespace=''):
         super().__init__('yolo_detector')
+
+        self.ns = f'/{namespace}' if namespace else ''
 
         qos = QoSProfile(
             reliability = ReliabilityPolicy.BEST_EFFORT,
@@ -23,14 +25,14 @@ class CNNDetectorNode(Node):
 
         self.sub = self.create_subscription(
             Image,
-            'camera/image_raw',
+            f'{self.ns}/camera/image_raw',
             self.image_cb,
             qos
         )
 
         self.target_pub = self.create_publisher(
             PoseStamped,
-            'target/pose',
+            f'{self.ns}/target/pose',
             10
         )
 
@@ -48,6 +50,7 @@ class CNNDetectorNode(Node):
         self.model.eval()
 
         self.get_logger().info(f'YOLO loaded on {self.device}')
+        self.get_logger().info(f'YOLO Detector node namespace: {self.ns if self.ns else "none"}')
 
         self.busy = False
         self.last_time = time.time()
@@ -130,7 +133,11 @@ class CNNDetectorNode(Node):
 
 def main():
     rclpy.init()
-    node = CNNDetectorNode()
+    
+    import sys
+    namespace = sys.argv[1] if len(sys.argv) > 1 else ''
+    
+    node = CNNDetectorNode(namespace=namespace)
     rclpy.spin(node)
 
 if __name__ == '__main__':

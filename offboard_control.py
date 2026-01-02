@@ -8,8 +8,10 @@ from mavros_msgs.srv import SetMode, CommandBool
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
 
 class PVODiscreteFlight(Node):
-    def __init__(self):
+    def __init__(self, namespace=''):
         super().__init__('pvo_discrete_flight')
+
+        self.ns = f'/{namespace}' if namespace else ''
 
         qos_profile = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
@@ -19,15 +21,15 @@ class PVODiscreteFlight(Node):
         )
 
         # Паблішери
-        self.pub = self.create_publisher(PoseStamped, 'mavros/setpoint_position/local', 10)
-        self.mount_pub = self.create_publisher(MountControl, 'mavros/mount_control/command', 10)
+        self.pub = self.create_publisher(PoseStamped, f'{self.ns}/mavros/setpoint_position/local', 10)
+        self.mount_pub = self.create_publisher(MountControl, f'{self.ns}/mavros/mount_control/command', 10)
         
         # Підписники
-        self.state_sub = self.create_subscription(State, 'mavros/state', self.state_callback, qos_profile)
-        self.pose_sub = self.create_subscription(PoseStamped, 'mavros/local_position/pose', self.pose_callback, qos_profile)
+        self.state_sub = self.create_subscription(State, f'{self.ns}/mavros/state', self.state_callback, qos_profile)
+        self.pose_sub = self.create_subscription(PoseStamped, f'{self.ns}/mavros/local_position/pose', self.pose_callback, qos_profile)
         
-        self.arm_client = self.create_client(CommandBool, 'mavros/cmd/arming')
-        self.mode_client = self.create_client(SetMode, 'mavros/set_mode')
+        self.arm_client = self.create_client(CommandBool, f'{self.ns}/mavros/cmd/arming')
+        self.mode_client = self.create_client(SetMode, f'{self.ns}/mavros/set_mode')
 
         # Точки (X, Y, Z)
         self.waypoints = [
@@ -50,6 +52,8 @@ class PVODiscreteFlight(Node):
         self.target_yaw = 0.0
 
         self.timer = self.create_timer(0.1, self.control_loop)
+        
+        self.get_logger().info(f'Nnamespace: {self.ns if self.ns else "none"}')
 
     def state_callback(self, msg):
         self.current_state = msg
@@ -139,7 +143,11 @@ class PVODiscreteFlight(Node):
 
 def main():
     rclpy.init()
-    node = PVODiscreteFlight()
+    
+    import sys
+    namespace = sys.argv[1] if len(sys.argv) > 1 else ''
+    
+    node = PVODiscreteFlight(namespace=namespace)
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

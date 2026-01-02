@@ -117,30 +117,32 @@ from mavros_msgs.srv import SetMode, CommandBool
 
 
 class FlyingTargetController(Node):
-    def __init__(self):
+    def __init__(self, namespace=''):
         super().__init__('attack_drone')
+    
+        self.ns = f'/{namespace}' if namespace else ''
     
         self.setpoint_pub = self.create_publisher(
             PoseStamped,
-            'mavros/setpoint_position/local',
+            f'{self.ns}/mavros/setpoint_position/local',
             10
         )
 
         self.target_sub = self.create_subscription(
             PoseStamped,
-            'target/pose',
+            f'{self.ns}/target/pose',
             self.target_cb,
             10
         )
 
         self.arm_client = self.create_client(
             CommandBool,
-            'mavros/cmd/arming'
+            f'{self.ns}/mavros/cmd/arming'
         )
 
         self.mode_client = self.create_client(
             SetMode,
-            'mavros/set_mode'
+            f'{self.ns}/mavros/set_mode'
         )
 
         # ОБОВʼЯЗКОВО
@@ -157,7 +159,7 @@ class FlyingTargetController(Node):
 
         self.timer = self.create_timer(0.1, self.publish_setpoint)
 
-        self.get_logger().info('Attack drone OFFBOARD node started')
+        self.get_logger().info(f'Attack drone OFFBOARD node started. namespace: {self.ns if self.ns else "none"}')
 
     def target_cb(self, msg: PoseStamped):
         self.pose.pose.position.x = msg.pose.position.x
@@ -203,7 +205,11 @@ class FlyingTargetController(Node):
 
 def main():
     rclpy.init()
-    node = FlyingTargetController()
+    
+    import sys
+    namespace = sys.argv[1] if len(sys.argv) > 1 else ''
+    
+    node = FlyingTargetController(namespace=namespace)
     rclpy.spin(node)
 
 

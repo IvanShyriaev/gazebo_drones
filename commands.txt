@@ -1,0 +1,41 @@
+_____ стандартний світ і станлартний дрон (ВИКОРИСТОВУЄМ GAZEBO CLASSIC)
+cd PX4-Autopilot
+make px4_sitl gazebo
+
+_____ дрон з камерою
+make px4_sitl gazebo-classic_typhoon_h480
+
+ make px4_sitl gazebo-classic_typhoon_h480__baylands
+ 
+світ
+export PX4_SITL_WORLD=/home/remote_gazebo/new_world.world 
+ 
+_____ запуск ROS2 (РОБИТИ ПІСЛЯ ЗАПУСКУ ГАЗеБО)
+ros2 launch mavros px4.launch fcu_url:=udp://:14540@14580
+
+
+_____ команда для відображення відео з дрону в новому вікні
+gst-launch-1.0  -v udpsrc port=5600 caps='application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)H264' ! rtph264depay ! avdec_h264 ! videoconvert ! autovideosink  sync=false
+
+тепер треба зробити щоб це відео паблішилось в ROS2 для подальшої роботи та використання 
+моделек і тд
+- виконано, зроблена нода для паблішингу, шукати в ros2_ws 
+топік паблішингу: camera/image_raw
+
+_____ щоб запустити ноду
+cd ~/ros2_ws
+colcon build
+source ~/ros2_ws/install/setup.bash
+ros2 run typhoon_camera typhoon_camera_node
+
+
+тепер можна буде підписатися і через скрипти працювати з зображеннями
+
+Запуск дрону в offboard control та взліт на 2 вгору (теж окрема нода)
+ros2 run typhoon_camera offboard_control
+
+щоб запустити конкретний світ треба вказати шлях в bash змінну PX4_SITL_WORLD=/{шлях}
+працює для стандартних, тестую для кастомних (працює для модифікованих стандартних світів)
+
+_____ Команда для запуску кількох дронів для уточнення дивитись https://docs.px4.io/main/en/sim_gazebo_classic/multi_vehicle_simulation
+Tools/simulation/gazebo-classic/sitl_multiple_run.sh -m typhoon_h480 -n 3 -w test
