@@ -48,12 +48,15 @@ class PVODiscreteFlight(Node):
         
         self.target_x = 0.0
         self.target_y = 0.0
-        self.target_z = 10.0
+        self.target_z = 2.0  # Start at 2m altitude
         self.target_yaw = 0.0
+        
+        self.setpoint_counter = 0
+        self.offboard_setpoint_counter = 0
 
         self.timer = self.create_timer(0.1, self.control_loop)
         
-        self.get_logger().info(f'Nnamespace: {self.ns if self.ns else "none"}')
+        self.get_logger().info(f'Namespace: {self.ns if self.ns else "none"}')
 
     def state_callback(self, msg):
         self.current_state = msg
@@ -62,6 +65,8 @@ class PVODiscreteFlight(Node):
         self.current_local_pose = msg
         if self.home_pose is None:
             self.home_pose = msg.pose.position
+            self.target_x = self.home_pose.x
+            self.target_y = self.home_pose.y
             self.get_logger().info('Home position fixed.')
 
     def set_camera_down(self):
@@ -69,26 +74,54 @@ class PVODiscreteFlight(Node):
         mount_msg = MountControl()
         mount_msg.header.stamp = self.get_clock().now().to_msg()
         mount_msg.mode = 2  # MAV_MOUNT_MODE_MAVLINK_TARGETING
-        mount_msg.pitch = -90.0 # Дивитися вниз
+        mount_msg.pitch = -90.0  # Дивитися вниз
         mount_msg.roll = 0.0
         mount_msg.yaw = 0.0
         self.mount_pub.publish(mount_msg)
+
+    def publish_setpoint(self):
+        """Publish setpoint to drone"""
+        pose_msg = PoseStamped()
+        pose_msg.header.stamp = self.get_clock().now().to_msg()
+        pose_msg.header.frame_id = 'map'
+        pose_msg.pose.position.x = self.target_x
+        pose_msg.pose.position.y = self.target_y
+        pose_msg.pose.position.z = self.target_z
+        
+        # Перетворення Yaw в кватерніон
+        sy = math.sin(self.target_yaw * 0.5)
+        cy = math.cos(self.target_yaw * 0.5)
+        pose_msg.pose.orientation.z = sy
+        pose_msg.pose.orientation.w = cy
+        
+        self.pub.publish(pose_msg)
+        self.setpoint_counter += 1
 
     def control_loop(self):
         if self.home_pose is None or self.current_local_pose is None:
             return
 
-        now = self.get_clock().now()
-        self.set_camera_down() # Постійно тримаємо камеру вниз
+        self.set_camera_down()  # Постійно тримаємо камеру вниз
+        
+        self.publish_setpoint()
 
         if self.state_machine == "WAITING":
-            self.target_x, self.target_y = self.home_pose.x, self.home_pose.y
-            if self.current_state.mode == "OFFBOARD" and self.current_state.armed:
+            # Публікуємо 10 setpoint-ів перед OFFBOARD
+            if self.setpoint_counter < 100:
+                self.get_logger().info(f'Publishing setpoints: {self.setpoint_counter}/100')
+                return
+            
+            # Тепер можемо перейти в OFFBOARD
+            if not self.current_state.guided:
+                self.set_offboard_mode()
+            
+            if self.current_state.guided and not self.current_state.armed:
+                self.arm()
+            
+            # Коли озброєний і в OFFBOARD
+            if self.current_state.guided and self.current_state.armed:
                 self.state_machine = "NAVIGATING"
                 self.get_logger().info("Starting waypoint mission")
-            else:
-                self.set_offboard_mode()
-                self.arm()
 
         elif self.state_machine == "NAVIGATING":
             target = self.waypoints[self.current_wp_idx]
@@ -102,7 +135,7 @@ class PVODiscreteFlight(Node):
             # Розрахунок Yaw, щоб дрон дивився куди летить
             self.target_yaw = math.atan2(dy, dx)
 
-            if dist < 3.0: # Радіус досягнення точки (3 метри)
+            if dist < 3.0:  # Радіус досягнення точки (3 метри)
                 self.get_logger().info(f"Reached point {self.current_wp_idx + 1}")
                 self.current_wp_idx += 1
                 if self.current_wp_idx >= len(self.waypoints):
@@ -111,35 +144,35 @@ class PVODiscreteFlight(Node):
         elif self.state_machine == "LANDING":
             self.set_land_mode()
 
-        # Публікація позиції
-        pose_msg = PoseStamped()
-        pose_msg.header.stamp = now.to_msg()
-        pose_msg.pose.position.x = self.target_x
-        pose_msg.pose.position.y = self.target_y
-        pose_msg.pose.position.z = self.target_z
-        
-        # Перетворення Yaw в кватерніон
-        sy = math.sin(self.target_yaw * 0.5)
-        cy = math.cos(self.target_yaw * 0.5)
-        pose_msg.pose.orientation.z = sy
-        pose_msg.pose.orientation.w = cy
-        
-        self.pub.publish(pose_msg)
-
     def set_offboard_mode(self):
+        if not self.mode_client.wait_for_service(timeout_sec=2.0):
+            self.get_logger().error('SetMode service not available')
+            return
+        
         req = SetMode.Request()
         req.custom_mode = 'OFFBOARD'
         self.mode_client.call_async(req)
+        self.get_logger().info('OFFBOARD mode requested')
 
     def set_land_mode(self):
+        if not self.mode_client.wait_for_service(timeout_sec=2.0):
+            self.get_logger().error('SetMode service not available')
+            return
+        
         req = SetMode.Request()
         req.custom_mode = 'AUTO.LAND'
         self.mode_client.call_async(req)
+        self.get_logger().info('LAND mode requested')
 
     def arm(self):
+        if not self.arm_client.wait_for_service(timeout_sec=2.0):
+            self.get_logger().error('Arming service not available')
+            return
+        
         req = CommandBool.Request()
         req.value = True
         self.arm_client.call_async(req)
+        self.get_logger().info('Arming requested')
 
 def main():
     rclpy.init()
