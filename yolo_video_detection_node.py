@@ -4,6 +4,7 @@ from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from geometry_msgs.msg import PoseStamped
+from std_msgs.msg import Int32  # Для публікації детекцій
 
 import torch
 import torch.nn as nn
@@ -11,9 +12,13 @@ import time
 import cv2
 import os
 
+from ultralytics import YOLO
+
 class CNNDetectorNode(Node):
-    def __init__(self):
+    def __init__(self, namespace=''):
         super().__init__('yolo_detector')
+
+        self.ns = f'/{namespace}' if namespace else ''
 
         qos = QoSProfile(
             reliability = ReliabilityPolicy.BEST_EFFORT,
@@ -23,14 +28,21 @@ class CNNDetectorNode(Node):
 
         self.sub = self.create_subscription(
             Image,
-            'camera/image_raw',
+            f'{self.ns}/camera/image_raw',
             self.image_cb,
             qos
         )
 
         self.target_pub = self.create_publisher(
             PoseStamped,
-            'target/pose',
+            f'{self.ns}/target/pose',
+            10
+        )
+
+        # Новий паблішер для детекцій на мапу
+        self.detection_pub = self.create_publisher(
+            Int32,
+            'yolo_detection',
             10
         )
 
@@ -39,25 +51,20 @@ class CNNDetectorNode(Node):
         self.get_logger().info('Loading YOLO model...')
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-        self.model = torch.hub.load(
-            'ultralytics/yolov5',
-            'yolov5s',
-            pretrained=True
-        )
+        self.model = YOLO('/home/remote_gazebo/ros2_ws/src/typhoon_camera/typhoon_camera/best.pt')
         self.model.to(self.device)
         self.model.eval()
 
         self.get_logger().info(f'YOLO loaded on {self.device}')
+        self.get_logger().info(f'YOLO Detector node namespace: {self.ns if self.ns else "none"}')
 
         self.busy = False
         self.last_time = time.time()
         self.img_counter = 0
+        self.detection_counter = 0  # Лічильник детекцій
 
         self.output_dir = './yolo_outputs'
-        self.raw_dir = './raw_images'
         os.makedirs(self.output_dir, exist_ok=True)
-        os.makedirs(self.raw_dir, exist_ok=True)
-
 
     def image_cb(self, msg: Image):
 
@@ -68,64 +75,77 @@ class CNNDetectorNode(Node):
 
         try:
             frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
-            raw_img_filename = os.path.join(self.raw_dir, f'raw_img_{self.img_counter:05d}.jpg')
-            cv2.imwrite(raw_img_filename, frame)
 
-            results = self.model(frame, size = 640)
+            # YOLOv8 inference
+            results = self.model(frame, imgsz=640, conf=0.6, verbose=False)
 
-            detections = results.xyxy[0]  
+            boxes = results[0].boxes
 
-            # if len(detections) > 0:
-            #     # time.sleep(5000)
-            #     msg = PoseStamped()
-            #     msg.header.stamp = self.get_clock().now().to_msg()
-            #     msg.header.frame_id = 'map'
+            if boxes is not None and len(boxes) > 0:
+                # Публікуємо координати для дрона-камікадзе
+                pose_msg = PoseStamped()
+                pose_msg.header.stamp = self.get_clock().now().to_msg()
+                pose_msg.header.frame_id = 'map'
 
-            #     #Тут просто заадємо координати const (поки що потім буде йоло з обчисленням координат)
-            #     msg.pose.position.x = 10.0
-            #     msg.pose.position.y = 10.0
-            #     msg.pose.position.z = 2.0
+                pose_msg.pose.position.x = 10.0
+                pose_msg.pose.position.y = 10.0
+                pose_msg.pose.position.z = 2.0
+                pose_msg.pose.orientation.w = 1.0
 
-            #     msg.pose.orientation.w = 1.0
+                self.target_pub.publish(pose_msg)
 
-            #     self.target_pub.publish(msg)
+                # Публікуємо повідомлення про детекцію для мапи
+                detection_msg = Int32()
+                detection_msg.data = self.detection_counter
+                self.detection_pub.publish(detection_msg)
 
-            #     self.get_logger().info(
-            #         'Target detected! I gave coords to drone kamikadze'
-            #     )
+                self.get_logger().info(
+                    f'Target detected #{self.detection_counter}! Sent to kamikaze drone and map logger'
+                )
+                
+                self.detection_counter += 1
 
             now = time.time()
             fps = 1.0 / (now - self.last_time)
             self.last_time = now
 
+            det_count = 0 if boxes is None else len(boxes)
             self.get_logger().info(
-                f'Detections: {len(detections)} | FPS: {fps:.1f}'
+                f'Detections: {det_count} | FPS: {fps:.1f}'
             )
 
-            for det in detections:
-                x1, y1, x2, y2, conf, cls = det.tolist()
-                label = f'{self.model.names[int(cls)]} {conf:.2f}'
-                cv2.rectangle(
-                    frame,
-                    (int(x1), int(y1)),
-                    (int(x2), int(y2)),
-                    (0, 255, 0),
-                    2
-                )
-                cv2.putText(
-                    frame,
-                    label,
-                    (int(x1), int(y1) - 5),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.5,
-                    (0, 255, 0),
-                    1
-                )
+            if boxes is not None:
+                for box in boxes:
+                    x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
+                    conf = box.conf[0].item()
+                    cls = int(box.cls[0].item())
 
-            img_filename = os.path.join(self.output_dir, f'yolo_{self.img_counter:05d}.jpg')
+                    label = f'{self.model.names[cls]} {conf:.2f}'
+
+                    cv2.rectangle(
+                        frame,
+                        (x1, y1),
+                        (x2, y2),
+                        (0, 255, 0),
+                        2
+                    )
+                    cv2.putText(
+                        frame,
+                        label,
+                        (x1, y1 - 5),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.5,
+                        (0, 255, 0),
+                        1
+                    )
+
+            img_filename = os.path.join(
+                self.output_dir,
+                f'yolo_{self.img_counter:05d}.jpg'
+            )
             cv2.imwrite(img_filename, frame)
             self.img_counter += 1
-            
+
         except Exception as e:
             self.get_logger().error(str(e))
 
@@ -133,9 +153,14 @@ class CNNDetectorNode(Node):
             self.busy = False
 
 
+
 def main():
     rclpy.init()
-    node = CNNDetectorNode()
+    
+    import sys
+    namespace = sys.argv[1] if len(sys.argv) > 1 else ''
+    
+    node = CNNDetectorNode(namespace=namespace)
     rclpy.spin(node)
 
 if __name__ == '__main__':
