@@ -28,18 +28,14 @@ class DangerMapLogger(Node):
             depth=10
         )
 
-        # Список для зберігання даних точок (підтверджені небезпеки)
         self.danger_points_data = []
-        # Список для зберігання YOLO детекцій (потенційні небезпеки)
         self.yolo_detections_data = []
         
         self.current_gps = None
 
-        # Параметри кластеризації (eps в метрах)
-        self.cluster_eps_meters = 10.0  # точки в радіусі 10 метрів об'єднуються
-        self.cluster_min_samples = 1    # мінімум точок для кластера
+        self.cluster_eps_meters = 10.0  
+        self.cluster_min_samples = 1    
 
-        # Subscribers
         self.gps_sub = self.create_subscription(
             NavSatFix, 
             'mavros/global_position/global', 
@@ -47,7 +43,6 @@ class DangerMapLogger(Node):
             qos_profile
         )
         
-        # Підтверджені небезпечні точки (waypoint_reached)
         self.waypoint_reached_sub = self.create_subscription(
             Int32, 
             'waypoint_reached', 
@@ -55,7 +50,6 @@ class DangerMapLogger(Node):
             10
         )
 
-        # YOLO детекції (потенційні небезпеки)
         self.yolo_detection_sub = self.create_subscription(
             Int32,
             'yolo_detection',
@@ -68,7 +62,7 @@ class DangerMapLogger(Node):
 
         self.image_sub = self.create_subscription(
             Image,
-            'camera/image_raw',
+            'camera/yolo_images',
             self.image_callback,
             10
         )
@@ -155,7 +149,7 @@ class DangerMapLogger(Node):
 
     def haversine_distance(self, lat1, lon1, lat2, lon2):
         """Обчислює відстань між двома GPS координатами в метрах"""
-        R = 6371000  # Радіус Землі в метрах
+        R = 6371000 
         
         phi1 = math.radians(lat1)
         phi2 = math.radians(lat2)
@@ -173,17 +167,14 @@ class DangerMapLogger(Node):
         if len(points_data) == 0:
             return {}
 
-        # Конвертуємо GPS координати в метри для DBSCAN
         coords = np.array([[p['lat'], p['lon']] for p in points_data])
         
-        # Апроксимація: 1 градус широти ≈ 111км
-        # Для більшої точності можна використати UTM проекцію
         lat_center = np.mean(coords[:, 0])
         coords_meters = coords.copy()
-        coords_meters[:, 0] *= 111000  # lat to meters
-        coords_meters[:, 1] *= 111000 * math.cos(math.radians(lat_center))  # lon to meters
+        coords_meters[:, 0] *= 111000  
+        coords_meters[:, 1] *= 111000 * math.cos(math.radians(lat_center)) 
         
-        # DBSCAN кластеризація
+        
         clustering = DBSCAN(
             eps=self.cluster_eps_meters,
             min_samples=self.cluster_min_samples,
@@ -192,7 +183,6 @@ class DangerMapLogger(Node):
         
         labels = clustering.labels_
         
-        # Групуємо точки по кластерах
         clusters = {}
         for idx, label in enumerate(labels):
             if label not in clusters:
@@ -217,25 +207,21 @@ class DangerMapLogger(Node):
         else:
             return
 
-        # Створюємо мапу
         m = folium.Map(
             location=[center_lat, center_lon], 
             zoom_start=18, 
             tiles='OpenStreetMap'
         )
         
-        # Кластеризуємо підтверджені небезпеки
         danger_clusters = self.cluster_points(self.danger_points_data)
-        
         for cluster_id, cluster_points in danger_clusters.items():
+            icon_size = 38
             cluster_size = len(cluster_points)
             
-            # Центр кластера
             center_lat = np.mean([p['lat'] for p in cluster_points])
             center_lon = np.mean([p['lon'] for p in cluster_points])
             avg_alt = np.mean([p['alt'] for p in cluster_points])
             
-            # Формуємо HTML для popup
             images_html = ""
             point_ids = []
             for p in cluster_points:
@@ -250,10 +236,6 @@ class DangerMapLogger(Node):
             {images_html}
             """
 
-            # Базовий розмір іконки + 1 піксель за кожну додаткову детекцію
-            icon_size = 38 + (cluster_size - 1)
-            
-            # Створюємо кастомну іконку зі збільшеним розміром
             icon_html = f'''
                 <div style="font-size: {icon_size}px;">
                     <i class="fa fa-exclamation-triangle" style="color: red;"></i>
@@ -266,18 +248,16 @@ class DangerMapLogger(Node):
                 icon=folium.DivIcon(html=icon_html, icon_size=(icon_size, icon_size))
             ).add_to(m)
 
-        # Кластеризуємо YOLO детекції
         yolo_clusters = self.cluster_points(self.yolo_detections_data)
         
         for cluster_id, cluster_points in yolo_clusters.items():
+            icon_size = 38
             cluster_size = len(cluster_points)
             
-            # Центр кластера
             center_lat = np.mean([p['lat'] for p in cluster_points])
             center_lon = np.mean([p['lon'] for p in cluster_points])
             avg_alt = np.mean([p['alt'] for p in cluster_points])
             
-            # Формуємо HTML для popup
             images_html = ""
             point_ids = []
             for p in cluster_points:
@@ -286,17 +266,23 @@ class DangerMapLogger(Node):
                     images_html += f'<img src="file://{p["image"]}" width="200" style="margin: 5px;"><br>'
             
             html = f"""
-            <b style="color: orange; font-size: 16px;">🔍 YOLO DETECTION</b><br>
-            <i>Potential threats detected</i><br>
-            <b>Detections: {cluster_size}</b> (IDs: {', '.join(point_ids)})<br>
-            Avg Altitude: {avg_alt:.1f} m<br><br>
-            {images_html}
-            """
+            <div style="
+                max-height: 300px;
+                overflow-y: auto;
+                overflow-x: hidden;
+                width: 420px;
+            ">
+                <b style="color: orange; font-size: 16px;">🔍 YOLO DETECTION</b><br>
+                <i>Potential threats detected</i><br>
+                <b>Detections: {cluster_size}</b> (IDs: {', '.join(point_ids)})<br>
+                Avg Altitude: {avg_alt:.1f} m<br><br>
 
-            # Базовий розмір іконки + 1 піксель за кожну додаткову детекцію
-            icon_size = 38 + (cluster_size - 1)
+                <div>
+                    {images_html}
+                </div>
+            </div>
+            """
             
-            # Створюємо кастомну іконку зі збільшеним розміром
             icon_html = f'''
                 <div style="font-size: {icon_size}px;">
                     <i class="fa fa-eye" style="color: orange;"></i>
@@ -309,7 +295,6 @@ class DangerMapLogger(Node):
                 icon=folium.DivIcon(html=icon_html, icon_size=(icon_size, icon_size))
             ).add_to(m)
 
-        # Зберігаємо мапу
         map_path = os.path.expanduser('~/mission_danger_map.html')
         m.save(map_path)
         

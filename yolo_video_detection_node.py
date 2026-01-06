@@ -39,10 +39,15 @@ class CNNDetectorNode(Node):
             10
         )
 
-        # Новий паблішер для детекцій на мапу
         self.detection_pub = self.create_publisher(
             Int32,
             'yolo_detection',
+            10
+        )
+
+        self.image_pub = self.create_publisher(
+            Image,
+            'camera/yolo_images',
             10
         )
 
@@ -78,10 +83,11 @@ class CNNDetectorNode(Node):
 
             # YOLOv8 inference
             results = self.model(frame, imgsz=640, conf=0.6, verbose=False)
-
             boxes = results[0].boxes
 
-            if boxes is not None and len(boxes) > 0:
+            detected = boxes is not None and len(boxes) > 0
+
+            if detected:
                 # Публікуємо координати для дрона-камікадзе
                 pose_msg = PoseStamped()
                 pose_msg.header.stamp = self.get_clock().now().to_msg()
@@ -100,20 +106,12 @@ class CNNDetectorNode(Node):
                 self.detection_pub.publish(detection_msg)
 
                 self.get_logger().info(
-                    f'Target detected #{self.detection_counter}! Sent to kamikaze drone and map logger'
+                    f'Target detected #{self.detection_counter}'
                 )
-                
+
                 self.detection_counter += 1
 
-            now = time.time()
-            fps = 1.0 / (now - self.last_time)
-            self.last_time = now
-
-            det_count = 0 if boxes is None else len(boxes)
-            self.get_logger().info(
-                f'Detections: {det_count} | FPS: {fps:.1f}'
-            )
-
+            # Малюємо bounding boxes
             if boxes is not None:
                 for box in boxes:
                     x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
@@ -122,13 +120,7 @@ class CNNDetectorNode(Node):
 
                     label = f'{self.model.names[cls]} {conf:.2f}'
 
-                    cv2.rectangle(
-                        frame,
-                        (x1, y1),
-                        (x2, y2),
-                        (0, 255, 0),
-                        2
-                    )
+                    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
                     cv2.putText(
                         frame,
                         label,
@@ -139,6 +131,21 @@ class CNNDetectorNode(Node):
                         1
                     )
 
+            # Публікація image з детекціями
+            img_msg = self.bridge.cv2_to_imgmsg(frame, encoding='bgr8')
+            img_msg.header.stamp = msg.header.stamp
+            img_msg.header.frame_id = msg.header.frame_id
+            self.image_pub.publish(img_msg)
+
+            # FPS лог
+            now = time.time()
+            fps = 1.0 / (now - self.last_time)
+            self.last_time = now
+
+            det_count = 0 if boxes is None else len(boxes)
+            self.get_logger().info(f'Detections: {det_count} | FPS: {fps:.1f}')
+
+            # (опційно) збереження на диск
             img_filename = os.path.join(
                 self.output_dir,
                 f'yolo_{self.img_counter:05d}.jpg'
@@ -151,6 +158,7 @@ class CNNDetectorNode(Node):
 
         finally:
             self.busy = False
+
 
 
 
